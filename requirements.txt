@@ -1,0 +1,4 @@
+boto3       # Para interactuar con AWS S3
+pandas      # Para manipulación de datos
+requests    # Para descargar datos de APIs
+numpy       # Para procesamiento numérico
