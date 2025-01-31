@@ -1,82 +1,87 @@
-import pandas as pd
-import numpy as np
 import os
-from typing import Tuple, Union
+import pandas as pd
+from typing import Tuple
+
 
 def missing_data(df: pd.DataFrame) -> Tuple[int, pd.Series]:
-    """Calculate the percentage of missing data in the DataFrame."""
+    """Calcula el número total y el porcentaje de valores faltantes en el DataFrame."""
     missing = df.isnull().sum()
     total = missing.sum()
     return total, 100 * missing / df.shape[0]
 
+
 def load_data(path: str) -> pd.DataFrame:
-    """Load the data from the specified path."""
+    """Carga los datos desde el archivo CSV especificado."""
     if not os.path.exists(path):
-        raise FileNotFoundError(f"File '{path}' not found.")
-    data = pd.read_csv(path, parse_dates=['datetime'])
-    return data
-
-def clean_data(df: pd.DataFrame, method: str = 'drop') -> pd.DataFrame:
-    """Clean the data by handling missing values using the specified method."""
-    if method == 'drop':
-        return df.dropna()
-    elif method == 'fill':
-        return df.fillna(method='ffill')
-    elif method == 'mean':
-        return df.fillna(df.mean())
-    elif method == 'median':
-        return df.fillna(df.median())
-    elif method == 'mode':
-        return df.fillna(df.mode().iloc[0])
-    elif method == 'zero':
-        return df.fillna(0)
-    elif method == 'moving_avg':
-        return df.fillna(df.rolling(2).mean())
-    else:
-        raise ValueError(f"Invalid method '{method}'. Use 'drop', 'fill', 'mean', 'median', 'mode', 'zero', or 'moving_avg'.")
-
-def missing_values_days(data: pd.DataFrame) -> pd.DatetimeIndex:
-    """Return the dates that have missing values."""
-    return data[data.isnull().any(axis=1)].index
-
-def drop_consecutive_missing_days(data: pd.DataFrame, threshold: int = 5) -> pd.DataFrame:
-    """Drop rows if there are `threshold` or more consecutive days with missing values."""
-    data = data.copy()
-    data['missing'] = data.isnull().any(axis=1)
-    data['group'] = (~data['missing']).cumsum()
-    consecutive_missing = data.groupby('group').filter(lambda x: x['missing'].sum() >= threshold)
-    return data.drop(consecutive_missing.index).drop(columns=['missing', 'group'])
-
-def run_data_processing(path: str, output_path: str = 'data/ETHUSDT.csv') -> pd.DataFrame:
-    """Main function to execute the data processing process."""
-    data = load_data(path)
+        raise FileNotFoundError(f"Archivo '{path}' no encontrado.")
     
-    print("Data loaded successfully")
-    print(f"Data shape: {data.shape}")
+    # Cargar el archivo y asegurar que 'datetime' sea el índice
+    df = pd.read_csv(path, parse_dates=['datetime'])
+    df.set_index('datetime', inplace=True)
     
-    total_missing, missing_percent = missing_data(data)
-    print(f"Total missing data: {total_missing}")
-    print("Percentage of missing data:")
-    print(missing_percent)
+    return df
 
-    missing_val_dates = missing_values_days(data)
-    print("Dates with missing values:")
-    print(missing_val_dates)
 
-    data = drop_consecutive_missing_days(data, threshold=5)
-    print("Rows with 5 or more consecutive missing days dropped successfully")
+def clean_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Limpia los datos: maneja valores faltantes y aplica un promedio móvil de 7 días."""
 
-    data = clean_data(data, method='moving_avg')
-    print("Missing values filled with the moving average successfully")
+    # Identificar columnas numéricas y no numéricas
+    numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+    non_numeric_cols = df.select_dtypes(exclude=['float64', 'int64']).columns
 
-    total_missing, missing_percent = missing_data(data)
-    print(f"Total missing data after cleaning: {total_missing}")
+    # Convertir las columnas numéricas a tipo float
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
 
-    data.to_csv(output_path, index=False)
-    print(f"Data saved successfully to {output_path}")
-    return data
+    # Aplicar un promedio móvil de 7 días centrado para rellenar valores NaN en columnas numéricas
+    df[numeric_cols] = df[numeric_cols].fillna(
+        df[numeric_cols].rolling(window=7, min_periods=1, center=True).mean()
+    )
+
+    # Las columnas no numéricas se mantienen sin cambios
+    df[non_numeric_cols] = df[non_numeric_cols]
+
+    return df
+
+
+def process_all_data(base_path: str, clean_path: str):
+    """Itera sobre todas las carpetas y archivos CSV para limpiar los datos."""
+    # Crear la carpeta clean_data si no existe
+    os.makedirs(clean_path, exist_ok=True)
+
+    for root, dirs, files in os.walk(base_path):
+        for file in files:
+            if file.endswith(".csv"):  # Procesar solo archivos CSV
+                file_path = os.path.join(root, file)
+                print(f"📂 Procesando archivo: {file_path}")
+                
+                try:
+                    # Cargar datos
+                    df = load_data(file_path)
+                    
+                    # Verificar datos faltantes antes de la limpieza
+                    total_missing, missing_percent = missing_data(df)
+                    print(f"🔍 Total de datos faltantes en '{file}': {total_missing}")
+                    print("📉 Porcentaje de datos faltantes por columna:")
+                    print(missing_percent)
+                    
+                    # Limpiar datos
+                    cleaned_df = clean_data(df)
+                    
+                    # Crear la subcarpeta en clean_data con la misma estructura que en base_path
+                    relative_path = os.path.relpath(root, base_path)
+                    output_dir = os.path.join(clean_path, relative_path)
+                    os.makedirs(output_dir, exist_ok=True)
+
+                    # Guardar el archivo limpio en la carpeta clean_data
+                    output_path = os.path.join(output_dir, file)
+                    cleaned_df.to_csv(output_path)
+                    
+                    print(f"✅ Datos limpios guardados en: {output_path}\n")
+                except Exception as e:
+                    print(f"❌ Error al procesar {file_path}: {e}")
+
 
 if __name__ == "__main__":
-    input_path = 'data/btc/BTCUSD.csv'
-    output_path = 'data/ETHUSDT.csv'
-    cleaned_data = run_data_processing(input_path, output_path)
+    base_path = "data"  # Carpeta donde están los CSV originales
+    clean_path = "clean_data"  # Carpeta donde se guardarán los datos limpios
+    process_all_data(base_path, clean_path)

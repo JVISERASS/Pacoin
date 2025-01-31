@@ -1,6 +1,7 @@
 import os
 from configparser import ConfigParser
 from TradingviewData.main import TradingViewData, Interval
+import pandas as pd
 
 def load_config(config_file='config.ini'):
     """Load configuration from a file."""
@@ -33,6 +34,7 @@ def download_crypto_data(request, crypto, crypto_types, interval, n_downloads, s
         print(f"Downloading data of {symbol} from {exchange} exchange...")
         try:
             data = request.get_hist(symbol, exchange, interval=interval, n_bars=n_downloads)
+            print(data.head())
             data.to_csv(f"{save_path}/{crypto}/{crypto_type}.csv")
             print(f"Data for {symbol} downloaded successfully\n")
         except Exception as e:
