@@ -2,6 +2,7 @@ import boto3
 import os
 import logging
 from configparser import ConfigParser
+import boto3.session
 from botocore.exceptions import ClientError
 
 # Configure logging
@@ -15,28 +16,32 @@ def load_config(config_file='config.ini'):
     config.read(config_file)
     return config
 
-def get_s3_client(config):
-    """Initializes and returns an AWS S3 client using credentials from the configuration."""
+def get_s3_client(aws_profile_name):
+    """
+    Inicializa y retorna un cliente de S3 usando un perfil de AWS.
+    
+    :param aws_profile_name: Nombre del perfil de AWS (definido en ~/.aws/credentials)
+    :return: Cliente de S3
+    """
     try:
-        return boto3.client(
-            's3',
-            region_name=config["AWS"]["region"],
-            aws_access_key_id=config["AWS"]["access_key"],
-            aws_secret_access_key=config["AWS"]["secret_key"]
-        )
-    except KeyError as e:
-        logging.error(f"Missing configuration key: {e}")
-        raise
+        # Crear una sesión de boto3 con el perfil especificado
+        session = boto3.Session(profile_name=aws_profile_name)
+        # Crear y retornar el cliente de S3
+        return session.client('s3')
+    except Exception as e:
+        logging.error(f"Error al crear el cliente de S3: {e}")
+        
 
-def create_s3_bucket(client, config,bucket_name, region):
+def create_s3_bucket(client, config, bucket_name, region):
     """Creates an S3 bucket if it does not already exist."""
     try:
         client.head_bucket(Bucket=bucket_name)  # Check if bucket exists
         logging.info(f"Bucket '{bucket_name}' already exists.")
     except ClientError as e:
-        if e.response['Error']['Code'] == '404':
+        if e.response['Error']['Code'] == '404':  # Bucket does not exist
             try:
-                if region == config["AWS"]["region"]:
+                # For regions other than us-east-1, LocationConstraint must be specified
+                if region == "us-east-1":  # Special case for US East (N. Virginia)
                     client.create_bucket(Bucket=bucket_name)
                 else:
                     client.create_bucket(
@@ -49,23 +54,35 @@ def create_s3_bucket(client, config,bucket_name, region):
         else:
             logging.error(f"Error checking bucket '{bucket_name}': {e}")
 
-def upload_file_to_s3(client, file_path, bucket, object_name=None):
-    """Uploads a file to an S3 bucket."""
-    if object_name is None:
-        object_name = os.path.basename(file_path)  # Use the filename as the object name
 
+def upload_file(client, file_name, bucket, object_name=None):
+    """Upload a file to an S3 bucket.
+
+    :param client: S3 client object
+    :param file_name: File to upload
+    :param bucket: Bucket to upload to
+    :param object_name: S3 object name. If not specified, file_name is used
+    :return: True if file was uploaded, else False
+    """
+    # If S3 object_name was not specified, use file_name
+    if object_name is None:
+        object_name = os.path.basename(file_name)
+
+    # Upload the file
     try:
-        client.upload_file(file_path, bucket, object_name)
-        logging.info(f"Successfully uploaded {file_path} to S3://{bucket}/{object_name}")
-    except Exception as e:
-        logging.error(f"Failed to upload {file_path} to S3://{bucket}/{object_name}: {e}")
+        client.upload_file(file_name, bucket, object_name)
+        logging.info(f"File '{file_name}' uploaded to '{bucket}' as '{object_name}'")
+        return True
+    except ClientError as e:
+        logging.error(f"Failed to upload file '{file_name}': {e}")
+        return False
 
 def run_data_loading_s3():
     """Executes the data upload process to AWS S3."""
     try:
         config = load_config('config.ini')
-        s3_client = get_s3_client(config)
-        region = config["AWS"]["region"]
+        s3_client = get_s3_client(config["AWS"]["aws_profile_name"])
+        region = "eu-south-2"
 
         data_root = 'data'  # Root directory containing cryptocurrency folders
         if not os.path.exists(data_root):
@@ -76,21 +93,22 @@ def run_data_loading_s3():
         if not crypto_dirs:
             logging.warning("No cryptocurrency directories found in 'data'. Nothing to upload.")
             return
+        
+        # Create an S3 bucket for the data
+        bucket_name = config["AWS"]["bucket_name"]
+        create_s3_bucket(s3_client, config, bucket_name, region)
 
-        for crypto in crypto_dirs:
-            bucket_name = f"crypto-{crypto}"  # Example: "crypto-btc", "crypto-eth"
-            create_s3_bucket(s3_client, config, bucket_name, region)
+        # Upload each cryptocurrency folder to the S3 bucket
+        for crypto_dir in crypto_dirs:
+            crypto_path = os.path.join(data_root, crypto_dir)
+            for root, _, files in os.walk(crypto_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    logging.info(f"Uploading file '{file_path}' to S3 bucket '{bucket_name}'...")
+                    upload_file(s3_client, file_path, bucket_name)
+                    logging.info("Data upload completed.")
 
-            crypto_path = os.path.join(data_root, crypto)
-            data_files = [f for f in os.listdir(crypto_path) if os.path.isfile(os.path.join(crypto_path, f))]
-            if not data_files:
-                logging.info(f"No files found in '{crypto}'. Skipping...")
-                continue
 
-            for data_file in data_files:
-                file_path = os.path.join(crypto_path, data_file)
-                object_name = f"{crypto}/{data_file}"  # Keep the structure in S3 (e.g., btc/btc.csv)
-                upload_file_to_s3(s3_client, file_path, bucket_name, object_name)
 
     except Exception as e:
         logging.error(f"An error occurred during data upload: {e}")
