@@ -84,7 +84,7 @@ def run_data_loading_s3():
         s3_client = get_s3_client(config["AWS"]["aws_profile_name"])
         region = "eu-south-2"
 
-        data_root = 'data'  # Root directory containing cryptocurrency folders
+        data_root = 'clean_data'  # Root directory containing cryptocurrency folders
         if not os.path.exists(data_root):
             raise FileNotFoundError(f"Data directory '{data_root}' does not exist.")
 
@@ -93,6 +93,8 @@ def run_data_loading_s3():
         if not crypto_dirs:
             logging.warning("No cryptocurrency directories found in 'data'. Nothing to upload.")
             return
+        
+        print(f"cryptodirs: {crypto_dirs}")
         
         # Create an S3 bucket for the data
         bucket_name = config["AWS"]["bucket_name"]
@@ -104,8 +106,9 @@ def run_data_loading_s3():
             for root, _, files in os.walk(crypto_path):
                 for file in files:
                     file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, data_root)
                     logging.info(f"Uploading file '{file_path}' to S3 bucket '{bucket_name}'...")
-                    upload_file(s3_client, file_path, bucket_name)
+                    upload_file(s3_client, file_path, bucket_name, object_name=relative_path)
                     logging.info("Data upload completed.")
 
 
