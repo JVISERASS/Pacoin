@@ -55,28 +55,29 @@ def process_all_data(base_path: str, clean_path: str):
                 print(f"📂 Procesando archivo: {file_path}")
                 
                 try:
-                    # Cargar datos
                     df = load_data(file_path)
                     
-                    # Verificar datos faltantes antes de la limpieza
                     total_missing, missing_percent = missing_data(df)
                     print(f"🔍 Total de datos faltantes en '{file}': {total_missing}")
                     print("📉 Porcentaje de datos faltantes por columna:")
                     print(missing_percent)
                     
-                    # Limpiar datos
                     cleaned_df = clean_data(df)
-                    
-                    # Crear la subcarpeta en clean_data con la misma estructura que en base_path
-                    relative_path = os.path.relpath(root, base_path)
-                    output_dir = os.path.join(clean_path, relative_path)
-                    os.makedirs(output_dir, exist_ok=True)
 
-                    # Guardar el archivo limpio en la carpeta clean_data
-                    output_path = os.path.join(output_dir, file)
-                    cleaned_df.to_csv(output_path)
-                    
-                    print(f"✅ Datos limpios guardados en: {output_path}\n")
+                    print(f"columnames: {cleaned_df.columns}")
+
+                    years = df.index.year
+
+                    for year in years.unique():
+                        year_df = cleaned_df[years == year]
+                        coin_name = root.split("/")[-1]
+                        os.makedirs(os.path.join(clean_path, coin_name, str(year)), exist_ok=True)
+
+                        year_df.to_csv(
+                            os.path.join(clean_path, coin_name,str(year),f"{year}_{file}"),
+                            index=False
+                        )
+
                 except Exception as e:
                     print(f"❌ Error al procesar {file_path}: {e}")
 
