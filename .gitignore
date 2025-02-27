@@ -2,3 +2,4 @@ data/
 *.pyc
 .venv
 clean_data/
+parquet_data/
