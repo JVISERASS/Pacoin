@@ -74,8 +74,10 @@ def process_all_data(base_path: str, clean_path: str):
                         os.makedirs(os.path.join(clean_path, coin_name, str(year)), exist_ok=True)
 
                         year_df.to_csv(
-                            os.path.join(clean_path, coin_name,str(year),f"{year}_{file}"),
-                            index=False
+                            os.path.join(clean_path, coin_name, str(year), f"{year}_{file.removesuffix('.csv').split(':')[1]}.csv"),
+                            index=False,
+                            sep=";"
+                
                         )
 
                 except Exception as e:
