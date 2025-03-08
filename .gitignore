@@ -1,5 +1,7 @@
 data/
 *.pyc
 .venv
+venv
 clean_data/
 parquet_data/
+parquet_data_indicators/

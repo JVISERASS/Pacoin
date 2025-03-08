@@ -19,9 +19,9 @@ def convert_csv_to_parquet(spark, csv_file_path, parquet_file_path):
             StructField("volume", DoubleType(), True)
         ])
         
-        df = spark.read.csv(csv_file_path, header=True, sep=";", schema=schema)
+        df = spark.read.csv(csv_file_path, header=True, sep=",", schema=schema)
         
-        df.write.parquet(parquet_file_path, mode='error')
+        df.write.parquet(parquet_file_path, mode='overwrite')
         
         logging.info(f"File converted and saved at: {parquet_file_path}")
     except Exception as e:

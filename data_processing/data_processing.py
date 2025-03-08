@@ -14,11 +14,11 @@ def load_data(path: str) -> pd.DataFrame:
     """Carga los datos desde el archivo CSV especificado."""
     if not os.path.exists(path):
         raise FileNotFoundError(f"Archivo '{path}' no encontrado.")
-    
+
     # Cargar el archivo y asegurar que 'datetime' sea el índice
     df = pd.read_csv(path, parse_dates=['datetime'])
     df.set_index('datetime', inplace=True)
-    
+
     return df
 
 
@@ -53,15 +53,15 @@ def process_all_data(base_path: str, clean_path: str):
             if file.endswith(".csv"):  # Procesar solo archivos CSV
                 file_path = os.path.join(root, file)
                 print(f"📂 Procesando archivo: {file_path}")
-                
+
                 try:
                     df = load_data(file_path)
-                    
+
                     total_missing, missing_percent = missing_data(df)
                     print(f"🔍 Total de datos faltantes en '{file}': {total_missing}")
                     print("📉 Porcentaje de datos faltantes por columna:")
                     print(missing_percent)
-                    
+
                     cleaned_df = clean_data(df)
 
                     print(f"columnames: {cleaned_df.columns}")
@@ -74,10 +74,8 @@ def process_all_data(base_path: str, clean_path: str):
                         os.makedirs(os.path.join(clean_path, coin_name, str(year)), exist_ok=True)
 
                         year_df.to_csv(
-                            os.path.join(clean_path, coin_name, str(year), f"{year}_{file.removesuffix('.csv').split(':')[1]}.csv"),
-                            index=False,
-                            sep=";"
-                
+                            os.path.join(clean_path, coin_name,str(year),f"{year}_{file.replace(":","")}"),
+                            index=False
                         )
 
                 except Exception as e:
