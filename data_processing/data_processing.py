@@ -73,10 +73,11 @@ def process_all_data(base_path: str, clean_path: str):
                         coin_name = root.split("/")[-1]
                         os.makedirs(os.path.join(clean_path, coin_name, str(year)), exist_ok=True)
 
-                        year_df.to_csv(
-                            os.path.join(clean_path, coin_name,str(year),f"{year}_{file.replace(":","")}"),
+                        year_df.reset_index().to_csv(
+                            os.path.join(clean_path, coin_name, str(year), f"{year}_{file.replace(':', '')}"),
                             index=False
                         )
+
 
                 except Exception as e:
                     print(f"❌ Error al procesar {file_path}: {e}")

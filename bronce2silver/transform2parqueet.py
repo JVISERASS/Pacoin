@@ -11,6 +11,7 @@ def convert_csv_to_parquet(spark, csv_file_path, parquet_file_path):
     try:
         # Define the schema of the CSV file
         schema = StructType([
+            StructField("datetime", StringType(), True),
             StructField("symbol", StringType(), True),
             StructField("open", DoubleType(), True),
             StructField("high", DoubleType(), True),
