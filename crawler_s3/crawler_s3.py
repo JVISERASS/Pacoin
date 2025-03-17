@@ -33,10 +33,10 @@ def get_s3_client(aws_profile_name):
         
 def create_and_execute_crawler():
     # Configura los valores clave
-    CRAWLER_NAME = "s3-to-glue-crawler"
+    CRAWLER_NAME = "s3-to-glue-crawlergold10"
     ROLE_ARN = "arn:aws:iam::585768141030:role/service-role/AWSGlueServiceRole-crawlertest"  # Reemplázalo con tu ARN de IAM
-    DATABASE_NAME = "trade_data_imat3b09"
-    S3_BUCKET_PATH = "s3://pacoin"
+    DATABASE_NAME = "trade_data_imat3b09gold"
+    S3_BUCKET_PATH = "s3://pacoingold"
 
     # Cliente de AWS Glue
     config = load_config('config.ini')
@@ -53,22 +53,22 @@ def create_and_execute_crawler():
     # Crear el crawler si no existe
     if not crawler_exists(CRAWLER_NAME):
         response = glue_client.create_crawler(
-    Name=CRAWLER_NAME,
-    Role=ROLE_ARN,
-    DatabaseName=DATABASE_NAME,
-    Targets={'S3Targets': [
-        {'Path': 's3://pacoin/btc/'},
-        {'Path': 's3://pacoin/eth/'},
-        {'Path': 's3://pacoin/ltc/'},
-         {'Path': 's3://pacoin/xrp/'}
-    ]},
-    TablePrefix='trade_data_',
-    SchemaChangePolicy={
-        'UpdateBehavior': 'UPDATE_IN_DATABASE',
-        'DeleteBehavior': 'DEPRECATE_IN_DATABASE'
-    }
-)
-
+            Name=CRAWLER_NAME,
+            Role=ROLE_ARN,
+            DatabaseName=DATABASE_NAME,
+            Targets={'S3Targets': [
+                {'Path': 's3://pacoingold/btc/'},
+                {'Path': 's3://pacoingold/eth/'},
+                {'Path': 's3://pacoingold/ltc/'},
+                {'Path': 's3://pacoingold/xrp/'}, 
+                {'Path': 's3://pacoingold/pepe/'}
+            ]},
+            TablePrefix='trade_data_',
+            SchemaChangePolicy={
+                'UpdateBehavior': 'UPDATE_IN_DATABASE',
+                'DeleteBehavior': 'DEPRECATE_IN_DATABASE'
+            }
+        )
         print(f"Crawler '{CRAWLER_NAME}' creado exitosamente.")
 
     # Ejecutar el crawler
