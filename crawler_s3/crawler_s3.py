@@ -33,7 +33,7 @@ def get_s3_client(aws_profile_name):
         
 def create_and_execute_crawler():
     # Configura los valores clave
-    CRAWLER_NAME = "s3-to-glue-crawlergold10"
+    CRAWLER_NAME = "s3-to-glue-crawlergold13"
     ROLE_ARN = "arn:aws:iam::585768141030:role/service-role/AWSGlueServiceRole-crawlertest"  # Reemplázalo con tu ARN de IAM
     DATABASE_NAME = "trade_data_imat3b09gold"
     S3_BUCKET_PATH = "s3://pacoingold"
@@ -57,12 +57,18 @@ def create_and_execute_crawler():
             Role=ROLE_ARN,
             DatabaseName=DATABASE_NAME,
             Targets={'S3Targets': [
-                {'Path': 's3://pacoingold/btc/'},
-                {'Path': 's3://pacoingold/eth/'},
-                {'Path': 's3://pacoingold/ltc/'},
-                {'Path': 's3://pacoingold/xrp/'}, 
-                {'Path': 's3://pacoingold/pepe/'}
-            ]},
+                        {'Path': 's3://pacoingold/BTC/'},
+                        {'Path': 's3://pacoingold/ETH/'},
+                        {'Path': 's3://pacoingold/LTC/'},
+                        {'Path': 's3://pacoingold/XRP/'},
+                        {'Path': 's3://pacoingold/PEPE/'},
+                        {'Path': 's3://pacoingold/BNB/'},
+                        {'Path': 's3://pacoingold/ADA/'},
+                        {'Path': 's3://pacoingold/DOGE/'},
+                        {'Path': 's3://pacoingold/SOL/'},
+                        {'Path': 's3://pacoingold/DOT/'}
+                    ]
+                    },
             TablePrefix='trade_data_',
             SchemaChangePolicy={
                 'UpdateBehavior': 'UPDATE_IN_DATABASE',
