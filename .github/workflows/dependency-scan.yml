@@ -1,0 +1,194 @@
+# Escaneo de dependencias con OSV-Scanner (https://google.github.io/osv-scanner/).
+# - Lockfiles/manifiestos de todos los ecosistemas del repo (npm, pnpm, yarn, pip, uv, poetry, cargo, go, nuget, maven...).
+# - Imágenes de contenedor referenciadas en Dockerfiles (FROM) y ficheros compose (image:), paquetes del SO incluidos.
+# Falla solo si hay vulnerabilidades HIGH/CRITICAL (CVSS >= 7) con versión corregida disponible.
+# Para aceptar una que no tenga arreglo: añádela a osv-scanner.toml en la raíz con motivo y fecha de caducidad:
+#   [[IgnoredVulns]]
+#   id = "GHSA-xxxx-xxxx-xxxx"
+#   ignoreUntil = 2027-01-31
+#   reason = "Sin versión parcheada; no expuesto porque ..."
+name: Escaneo de dependencias
+
+on:
+  pull_request:
+  push:
+    branches: [main, master, dev]
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: dependency-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OSV_VERSION: v2.7.1
+  OSV_SHA256: fb7dab19a8bd9bbe5c3189f09d4b7ee1820c9553a23bac202648a56efd2f6ee8
+  MAX_IMAGES: "25"
+
+jobs:
+  osv-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Instalar OSV-Scanner (binario verificado)
+        run: |
+          curl -fsSL -o /usr/local/bin/osv-scanner \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  /usr/local/bin/osv-scanner" | sha256sum -c -
+          chmod +x /usr/local/bin/osv-scanner
+          osv-scanner --version | head -1
+
+      - name: Escanear lockfiles y manifiestos
+        run: |
+          mkdir -p osv-out
+          set +e
+          osv-scanner scan source -r --format json --output-file osv-out/source.json .
+          rc=$?
+          set -e
+          case $rc in
+            0|1) ;;
+            128) echo "Sin manifiestos de dependencias soportados"; rm -f osv-out/source.json ;;
+            *) echo "::warning::osv-scanner scan source terminó con código $rc"; rm -f osv-out/source.json ;;
+          esac
+
+      - name: Escanear imágenes de contenedor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY' > osv-out/images.txt
+          import os, re, pathlib
+          skip_dirs = {"node_modules", ".git", "vendor", ".venv", "dist", "build"}
+          imgs = []
+          for root, dirs, files in os.walk("."):
+              dirs[:] = [d for d in dirs if d not in skip_dirs]
+              for f in files:
+                  p = pathlib.Path(root, f)
+                  low = f.lower()
+                  try:
+                      if low == "dockerfile" or low.startswith("dockerfile.") or low.endswith(".dockerfile"):
+                          stages = set()
+                          for line in p.read_text(errors="ignore").splitlines():
+                              m = re.match(r"\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?", line, re.I)
+                              if m:
+                                  img = m.group(1)
+                                  if img.lower() not in stages:
+                                      imgs.append(img)
+                                  if m.group(2):
+                                      stages.add(m.group(2).lower())
+                      elif re.match(r"(docker-)?compose.*\.ya?ml$", low) or (low.endswith((".yml", ".yaml")) and "compose" in str(p).lower()):
+                          for line in p.read_text(errors="ignore").splitlines():
+                              m = re.match(r"\s*image:\s*['\"]?([^'\"\s#]+)", line)
+                              if m:
+                                  imgs.append(m.group(1))
+                  except OSError:
+                      pass
+          seen = []
+          for i in imgs:
+              if "$" in i or "{" in i or i.lower() == "scratch" or i in seen:
+                  continue
+              seen.append(i)
+          print("\n".join(seen))
+          PY
+          n=0
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin >/dev/null 2>&1 || true
+          : > osv-out/images-skipped.txt
+          while read -r img; do
+            [ -z "$img" ] && continue
+            n=$((n+1))
+            if [ "$n" -gt "$MAX_IMAGES" ]; then echo "$img (límite de ${MAX_IMAGES} imágenes)" >> osv-out/images-skipped.txt; continue; fi
+            if ! docker pull -q "$img" >/dev/null 2>&1; then
+              echo "$img (no se pudo descargar)" >> osv-out/images-skipped.txt; continue
+            fi
+            safe=$(echo "$img" | tr '/:@' '___')
+            set +e
+            osv-scanner scan image --format json --output-file "osv-out/image-${safe}.json" "$img"
+            rc=$?
+            set -e
+            if [ $rc -gt 1 ] && [ $rc -ne 128 ]; then
+              echo "$img (error del escáner: $rc)" >> osv-out/images-skipped.txt; rm -f "osv-out/image-${safe}.json"
+            fi
+            docker image rm -f "$img" >/dev/null 2>&1 || true
+          done < osv-out/images.txt
+
+      - name: Evaluar resultados
+        run: |
+          python3 - <<'PY'
+          import glob, json, os, sys
+
+          THRESHOLD = 7.0
+          rows, blocking = [], 0
+          for path in sorted(glob.glob("osv-out/*.json")):
+              origin = "imagen " + os.path.basename(path)[6:-5] if os.path.basename(path).startswith("image-") else "código"
+              try:
+                  data = json.load(open(path))
+              except Exception as e:
+                  print(f"::warning::No se pudo leer {path}: {e}")
+                  continue
+              for res in data.get("results") or []:
+                  src = (res.get("source") or {}).get("path", "")
+                  for pkg in res.get("packages") or []:
+                      meta = pkg.get("package") or {}
+                      name = meta.get("name", "?")
+                      vulns = {v["id"]: v for v in pkg.get("vulnerabilities") or []}
+                      for g in pkg.get("groups") or []:
+                          try:
+                              sev = float(g.get("max_severity") or 0)
+                          except ValueError:
+                              sev = 0.0
+                          fixed = set()
+                          for vid in g.get("ids") or []:
+                              for aff in (vulns.get(vid) or {}).get("affected") or []:
+                                  if (aff.get("package") or {}).get("name") not in (name, None):
+                                      continue
+                                  for rng in aff.get("ranges") or []:
+                                      for ev in rng.get("events") or []:
+                                          if "fixed" in ev:
+                                              fixed.add(ev["fixed"])
+                          ids = list(dict.fromkeys((g.get("aliases") or []) + (g.get("ids") or [])))
+                          cve = next((i for i in ids if i.startswith("CVE-")), ids[0] if ids else "?")
+                          is_block = sev >= THRESHOLD and bool(fixed)
+                          blocking += is_block
+                          rows.append((is_block, sev, name, meta.get("version", "?"), meta.get("ecosystem", ""),
+                                       cve, ", ".join(sorted(fixed)[:3]) or "sin arreglo", origin if origin != "código" else src.replace(os.getcwd() + "/", "")))
+
+          rows.sort(key=lambda r: (not r[0], -r[1]))
+          out = ["## Escaneo de dependencias (OSV-Scanner)", ""]
+          total = len(rows)
+          high = sum(1 for r in rows if r[1] >= THRESHOLD)
+          out.append(f"**{blocking}** HIGH/CRITICAL con arreglo disponible (bloquean) · {high} HIGH/CRITICAL en total · {total} vulnerabilidades en total")
+          out.append("")
+          if rows:
+              out += ["| | CVSS | Paquete | Versión | Ecosistema | ID | Corregido en | Origen |", "|---|---|---|---|---|---|---|---|"]
+              for r in rows[:200]:
+                  icon = "🔴" if r[0] else ("🟠" if r[1] >= THRESHOLD else "⚪")
+                  out.append(f"| {icon} | {r[1] or '-'} | `{r[2]}` | {r[3]} | {r[4]} | {r[5]} | {r[6]} | {r[7]} |")
+              if total > 200:
+                  out.append(f"\n… y {total - 200} más (ver artefacto `osv-results`).")
+          skipped = open("osv-out/images-skipped.txt").read().strip() if os.path.exists("osv-out/images-skipped.txt") else ""
+          if skipped:
+              out += ["", "<details><summary>Imágenes no escaneadas</summary>", "", "```", skipped, "```", "</details>"]
+          summary = "\n".join(out) + "\n"
+          with open(os.environ.get("GITHUB_STEP_SUMMARY", "/dev/stdout"), "a") as fh:
+              fh.write(summary)
+          print(summary)
+          if blocking:
+              print(f"::error::{blocking} vulnerabilidades HIGH/CRITICAL con versión corregida disponible")
+              sys.exit(1)
+          PY
+
+      - name: Guardar resultados
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: osv-results
+          path: osv-out/
+          retention-days: 30
