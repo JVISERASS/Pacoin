@@ -1,0 +1,17 @@
+# Actualizaciones de versión semanales (las de seguridad van aparte, en cuanto sale la CVE).
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directories:
+      - "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Madrid"
+    open-pull-requests-limit: 5
+    groups:
+      pip-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
