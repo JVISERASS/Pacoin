@@ -7,7 +7,7 @@ jmespath==1.0.1
 numpy==2.2.2
 pandas==2.2.3
 py4j==0.10.9.7
-pyspark==3.5.5
+pyspark==3.5.8
 python-dateutil==2.9.0.post0
 pytz==2025.1
 requests==2.33.0
